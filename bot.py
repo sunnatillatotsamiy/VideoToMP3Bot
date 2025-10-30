@@ -1,54 +1,40 @@
 import os
-import asyncio
-from aiogram import Bot, Dispatcher, F
+import logging
+from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message
-from yt_dlp import YoutubeDL
-import subprocess
-import tempfile
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 
-# 🔹 Вставь сюда токен своего Telegram-бота
+# Логирование (чтобы видеть ошибки в Render)
+logging.basicConfig(level=logging.INFO)
+
+# Токен берём из переменных окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("❌ BOT_TOKEN not found. Set it in Render Environment Variables.")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# --- Функция скачивания и конвертации видео ---
-def download_video_as_mp3(url: str) -> str:
-    """Скачивает видео по ссылке и конвертирует в MP3"""
-    tmp_dir = tempfile.mkdtemp()
-    video_path = os.path.join(tmp_dir, "video.mp4")
-    mp3_path = os.path.join(tmp_dir, "audio.mp3")
+# === Обработчики сообщений ===
+@dp.message()
+async def handle_message(message: Message):
+    await message.answer("🎧 Привет! Отправь мне ссылку на видео, и я конвертирую его в MP3.")
 
-    ydl_opts = {"outtmpl": video_path}
-    with YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+# === Webhook сервер ===
+async def start_webhook():
+    app = web.Application()
+    webhook_path = "/webhook"
 
-    subprocess.run([
-        "ffmpeg", "-i", video_path, "-vn", "-ab", "192k", "-ar", "44100", "-y", mp3_path
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Настройка Webhook
+    SimpleRequestHandler(dp, bot).register(app, path=webhook_path)
+    setup_application(app, dp)
 
-    return mp3_path
+    logging.info("✅ Webhook сервер запущен на Render")
 
+    return app
 
-# --- Обработка сообщений с ссылками ---
-@dp.message(F.text)
-async def handle_link(message: Message):
-    url = message.text.strip()
-    if any(domain in url for domain in ["youtube", "instagram", "facebook", "tiktok"]):
-        await message.reply("🎧 Загружаю и конвертирую... подожди немного.")
-        try:
-            mp3_path = download_video_as_mp3(url)
-            await message.reply_audio(audio=open(mp3_path, "rb"))
-        except Exception as e:
-            await message.reply(f"❌ Ошибка: {e}")
-    else:
-        await message.reply("🔗 Отправь ссылку на видео (YouTube, Instagram, TikTok, Facebook).")
-
-
-# --- Запуск бота ---
-async def main():
-    print("✅ Бот запущен. Ожидаю сообщения...")
-    await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Запуск приложения (Render автоматически подставит PORT)
+    web.run_app(start_webhook(), host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
