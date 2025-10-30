@@ -21,14 +21,15 @@ dp = Dispatcher()
 # === Команда /start ===
 @dp.message(lambda message: message.text == "/start")
 async def cmd_start(message: Message):
-    await message.answer("🎧 Привет! Отправь мне ссылку на видео (YouTube, Instagram, Facebook и т.д.), и я конвертирую его в MP3.")
+    await message.answer(
+        "🎧 Привет! Отправь мне ссылку на видео (YouTube, Instagram, Facebook и т.д.), и я конвертирую его в MP3."
+    )
 
-# === Обработка всех сообщений (ссылок) ===
+# === Основная логика скачивания и конвертации ===
 @dp.message()
 async def convert_to_mp3(message: Message):
     url = message.text.strip()
 
-    # Проверяем, является ли это ссылкой
     if not url.startswith("http"):
         await message.answer("❗ Отправь, пожалуйста, корректную ссылку на видео.")
         return
@@ -36,18 +37,30 @@ async def convert_to_mp3(message: Message):
     await message.answer("⏳ Загружаю и конвертирую аудио, подожди немного...")
 
     try:
-        # Временные файлы
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Путь к mp3-файлу
             mp3_path = os.path.join(tmpdir, "audio.mp3")
 
-            # Настройки yt-dlp для скачивания только аудио
+            # Определяем cookie-файл по типу сайта
+            if "instagram.com" in url:
+                cookie_file = "instagram_cookies.txt"
+            elif "youtube.com" in url or "youtu.be" in url:
+                cookie_file = "youtube_cookies.txt"
+            else:
+                cookie_file = None
+
             ydl_opts = {
                 "format": "bestaudio/best",
                 "outtmpl": os.path.join(tmpdir, "temp.%(ext)s"),
                 "quiet": True,
                 "noplaylist": True,
             }
+
+            # Добавляем cookies, если есть
+            if cookie_file and os.path.exists(cookie_file):
+                ydl_opts["cookiefile"] = cookie_file
+                logging.info(f"✅ Использую cookie-файл: {cookie_file}")
+            else:
+                logging.warning(f"⚠️ Cookie-файл не найден для {url}")
 
             # Скачиваем аудио
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
